@@ -68,12 +68,14 @@ class CivitaiClient:
     def _request_stream(self, url: str, destination: Path) -> Path:
         self._validate_civitai_url(url)
         destination.parent.mkdir(parents=True, exist_ok=True)
+        temp_destination = destination.with_name(f"{destination.name}.part")
         with self._client.stream("GET", url) as response:
             if response.status_code >= 400:
                 raise CivitaiAPIError("download", str(response.request.url), response.status_code, response.text)
-            with destination.open("wb") as handle:
+            with temp_destination.open("wb") as handle:
                 for chunk in response.iter_bytes():
                     handle.write(chunk)
+        temp_destination.replace(destination)
         return destination
 
     def search_models(self, **params: Any) -> dict[str, Any]:

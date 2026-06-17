@@ -114,6 +114,7 @@ class TestCivitaiMCP(unittest.TestCase):
                 client.close()
 
             self.assertEqual(downloaded.read_bytes(), b"payload")
+            self.assertFalse((tmp_path / "demo.safetensors.part").exists())
             self.assertIn("https://civitai.com/api/download/models/1", seen["url"])
 
     def test_download_url_rejects_non_civitai_hosts(self) -> None:
