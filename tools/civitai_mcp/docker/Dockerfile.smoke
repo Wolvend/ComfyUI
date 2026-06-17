@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+WORKDIR /workspace
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir httpx pydantic blake3 mcp
+
+COPY tools/civitai_mcp /workspace/tools/civitai_mcp
+COPY tests/test_civitai_mcp.py /workspace/tests/test_civitai_mcp.py
+
+CMD ["python", "-m", "unittest", "tests.test_civitai_mcp", "-v"]
