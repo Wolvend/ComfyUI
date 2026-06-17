@@ -32,6 +32,7 @@ Optional configuration:
 - Get ComfyUI folder hints for downloads and installs
 - Resolve local ComfyUI model folders and detect duplicates
 - Scan workflows for likely missing local assets
+- Plan resumable-safe downloads without writing files
 - Inspect cache state and clear the cache explicitly
 - Plan downloads and installs without writing by default
 
@@ -39,6 +40,7 @@ Optional configuration:
 
 - Find a model: `civitai_search_models`
 - Check a folder hint: `civitai_get_compatibility_hint`
+- Plan a download: `civitai_plan_download`
 - Plan a safe install: `civitai_plan_safe_install`
 - Scan a workflow: `civitai_scan_workflow_assets`
 

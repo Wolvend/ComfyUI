@@ -375,6 +375,14 @@ def create_server(config: ServerConfig | None = None) -> FastMCP:
                 file_entry = next((item for item in version.get("files", []) if item.get("primary")), None)
                 if file_entry is None and version.get("files"):
                     file_entry = version["files"][0]
+        source_file = file_summary(file_entry) if file_entry else None
+        expected_size_kb = file_entry.get("sizeKB") if file_entry else None
+        expected_size_bytes: int | None = None
+        if expected_size_kb is not None:
+            try:
+                expected_size_bytes = int(float(expected_size_kb) * 1024)
+            except (TypeError, ValueError):
+                expected_size_bytes = None
         url_filename = Path(re.sub(r"[?#].*$", "", Path(urlparse(resolved_download_url).path).name or "")).name
         raw_filename = filename or (file_entry or {}).get("name") or url_filename or "download.bin"
         chosen_filename = Path(str(raw_filename)).name or "download.bin"
@@ -392,7 +400,77 @@ def create_server(config: ServerConfig | None = None) -> FastMCP:
             "resolved_folder": str(resolved_destination_folder),
             "resolved_folder_relative": safe_relative(resolved_destination_folder),
             "source_model_version": version_summary(version) if version else None,
+            "source_file": source_file,
+            "expected_size_kb": expected_size_kb,
+            "expected_size_bytes": expected_size_bytes,
             "existing_path": str((resolved_destination_folder / chosen_filename)) if (resolved_destination_folder / chosen_filename).exists() else None,
+        }
+
+    def download_plan(
+        *,
+        download_url: str | None = None,
+        model_version_id: int | None = None,
+        file_hash: str | None = None,
+        file_id: int | None = None,
+        asset_type: str | None = None,
+        destination_folder: str | None = None,
+        destination_filename: str | None = None,
+    ) -> dict[str, Any]:
+        plan = install_plan(
+            download_url=download_url,
+            model_version_id=model_version_id,
+            file_hash=file_hash,
+            file_id=file_id,
+            asset_type=asset_type,
+            destination_folder=destination_folder,
+            filename=destination_filename,
+        )
+        destination_path = Path(plan["destination_path"])
+        partial_path = destination_path.with_name(f"{destination_path.name}.part")
+        expected_size_bytes = plan.get("expected_size_bytes")
+        destination_exists = destination_path.exists()
+        partial_exists = partial_path.exists()
+        existing_size_bytes = destination_path.stat().st_size if destination_exists else None
+        partial_size_bytes = partial_path.stat().st_size if partial_exists else None
+
+        download_state = "ready_to_download"
+        if destination_exists and expected_size_bytes is not None and existing_size_bytes is not None and existing_size_bytes >= expected_size_bytes:
+            download_state = "already_present"
+        elif partial_exists:
+            if expected_size_bytes is not None and partial_size_bytes is not None and partial_size_bytes < expected_size_bytes:
+                download_state = "resume_candidate"
+            else:
+                download_state = "partial_present"
+        elif expected_size_bytes is None:
+            download_state = "size_unknown"
+
+        if download_state == "already_present":
+            next_step = "No download is needed unless you want overwrite=true for a fresh copy."
+        elif download_state == "resume_candidate":
+            next_step = (
+                "A partial file exists, but the built-in downloader does not resume range requests. "
+                "Keep the partial file intact and use an external resumable downloader if you want to continue safely."
+            )
+        elif download_state == "partial_present":
+            next_step = (
+                "A partial file exists, but the final file size is unknown or already matches. "
+                "Inspect the partial file before writing anything new."
+            )
+        elif download_state == "size_unknown":
+            next_step = "The source file size was not exposed by metadata, so verify the destination manually before writing."
+        else:
+            next_step = "Call civitai_download_asset with dry_run=false to write the file."
+
+        return {
+            **plan,
+            "destination_exists": destination_exists,
+            "existing_size_bytes": existing_size_bytes,
+            "partial_path": str(partial_path),
+            "partial_exists": partial_exists,
+            "partial_size_bytes": partial_size_bytes,
+            "download_state": download_state,
+            "resume_supported": False,
+            "next_step": next_step,
         }
 
     def infer_asset_type(filename: str | None, explicit_asset_type: str | None, model_type: str | None, base_model: str | None) -> tuple[str, list[str]]:
@@ -529,7 +607,7 @@ def create_server(config: ServerConfig | None = None) -> FastMCP:
         }
 
     def render_model_report(model: dict[str, Any]) -> dict[str, Any]:
-        latest = (model.get("modelVersions") or [None])[0]
+        latest = latest_model_version(model.get("modelVersions") or [])
         latest_summary = version_summary(latest) if latest else None
         file_rows = [file_summary(item) for item in (latest.get("files", []) if latest else [])]
         markdown_lines = [
@@ -1220,6 +1298,48 @@ def create_server(config: ServerConfig | None = None) -> FastMCP:
             )
         except Exception as exc:  # noqa: BLE001
             return error_result("Install asset", exc)
+
+    @app.tool(
+        name="civitai_plan_download",
+        description="Plan a safe download into ComfyUI and report whether a partial file could be resumed safely.",
+        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=True),
+        structured_output=True,
+    )
+    def civitai_plan_download(
+        download_url: str | None = None,
+        model_version_id: int | None = None,
+        file_hash: str | None = None,
+        file_id: int | None = None,
+        destination_folder: str | None = None,
+        destination_filename: str | None = None,
+        asset_type: str | None = None,
+    ) -> ToolResult:
+        try:
+            payload = download_plan(
+                download_url=download_url,
+                model_version_id=model_version_id,
+                file_hash=file_hash,
+                file_id=file_id,
+                destination_folder=destination_folder,
+                destination_filename=destination_filename,
+                asset_type=asset_type,
+            )
+            return envelope(
+                status="ok",
+                summary=f"Planned download for {payload['filename']} into {payload['resolved_folder_relative'] or payload['resolved_folder']}.",
+                query={
+                    "download_url": download_url,
+                    "model_version_id": model_version_id,
+                    "file_hash": file_hash,
+                    "file_id": file_id,
+                    "destination_folder": destination_folder,
+                    "destination_filename": destination_filename,
+                    "asset_type": asset_type,
+                },
+                data=payload,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return error_result("Plan download", exc)
 
     @app.tool(
         name="civitai_server_status",
