@@ -19,3 +19,4 @@
 
 - `.\venv\Scripts\python.exe -m unittest tests.test_civitai_mcp -v`
 - `.\tools\civitai_mcp\docker\run_smoke.ps1`
+- `.\venv\Scripts\python.exe -m pip check` reports unrelated pre-existing conflicts in the broader ComfyUI environment, but no changes were made to dependency pins for this package.

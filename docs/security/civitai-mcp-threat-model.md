@@ -10,7 +10,7 @@ This repository adds a local Civitai FastMCP server under `tools/civitai_mcp/` a
 - Model binaries, workflow files, cache files, and downloaded assets
 - Any Civitai API credentials configured in the environment
 - The integrity of tool outputs used by downstream agents
-- The user’s expectation that read-only tools do not write files
+- The user's expectation that read-only tools do not write files
 
 ## Trust Boundaries
 
