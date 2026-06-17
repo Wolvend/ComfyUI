@@ -370,6 +370,101 @@ class TestCivitaiMCP(unittest.TestCase):
 
         self.assertEqual(result[1]["data"]["model"]["latestVersion"]["id"], 2)
 
+    def test_get_model_files_uses_newest_version_for_model_id(self) -> None:
+        class FakeClient:
+            def get_model(self, model_id):
+                return {
+                    "id": model_id,
+                    "name": "Demo Model",
+                    "creator": {"username": "demo"},
+                    "tags": [],
+                    "type": "Checkpoint",
+                    "nsfwLevel": 0,
+                    "availability": "Published",
+                    "supportsGeneration": True,
+                    "description": "<p>hello</p>",
+                    "modelVersions": [
+                        {
+                            "id": 1,
+                            "name": "old",
+                            "index": 0,
+                            "baseModel": "Flux",
+                            "baseModelType": "Standard",
+                            "publishedAt": "2025-01-01T00:00:00Z",
+                            "status": "Published",
+                            "availability": "Published",
+                            "trainedWords": [],
+                            "vaeId": None,
+                            "stats": {},
+                            "downloadUrl": "https://example.invalid/download-old",
+                            "files": [{"id": 1, "name": "old.safetensors", "type": "Model", "sizeKB": 1, "primary": True, "downloadUrl": "https://example.invalid/download-old", "hashes": {}}],
+                            "images": [],
+                        },
+                        {
+                            "id": 2,
+                            "name": "new",
+                            "index": 1,
+                            "baseModel": "Flux",
+                            "baseModelType": "Standard",
+                            "publishedAt": "2026-01-01T00:00:00Z",
+                            "status": "Published",
+                            "availability": "Published",
+                            "trainedWords": [],
+                            "vaeId": None,
+                            "stats": {},
+                            "downloadUrl": "https://example.invalid/download-new",
+                            "files": [{"id": 2, "name": "new.safetensors", "type": "Model", "sizeKB": 2, "primary": True, "downloadUrl": "https://example.invalid/download-new", "hashes": {}}],
+                            "images": [],
+                        },
+                    ],
+                }
+
+            def search_models(self, **kwargs):
+                return {"items": [], "metadata": {}}
+
+            def get_model_version(self, version_id):
+                return {"files": [], "images": []}
+
+            def get_model_version_by_hash(self, file_hash):
+                return {"files": [], "images": []}
+
+            def search_creators(self, **kwargs):
+                return {"items": [], "metadata": {}}
+
+            def search_images(self, **kwargs):
+                return {"items": [], "metadata": {}}
+
+            def search_tags(self, **kwargs):
+                return {"items": [], "metadata": {}}
+
+            def resolve_download_url(self, **kwargs):
+                return "https://example.invalid/download", {"source": "stub"}
+
+            def download(self, url, destination):
+                destination.write_bytes(b"payload")
+                return destination
+
+            def close(self):
+                pass
+
+        with tempfile_directory() as tmp_path:
+            fake_client = FakeClient()
+            with mock.patch("tools.civitai_mcp.server.CivitaiClient", return_value=fake_client):
+                config = ServerConfig.from_env(
+                    comfyui_root=tmp_path / "ComfyUI",
+                    cache_dir=tmp_path / "cache",
+                    api_key=None,
+                    debug=False,
+                    host="127.0.0.1",
+                    port=8000,
+                )
+                server = create_server(config)
+                result = asyncio.run(server.call_tool("civitai_get_model_files", {"model_id": 10}))
+
+        self.assertEqual(result[1]["status"], "ok")
+        self.assertEqual(result[1]["data"]["version"]["id"], 2)
+        self.assertEqual(result[1]["data"]["files"][0]["name"], "new.safetensors")
+
     def test_export_model_report_uses_latest_version_in_markdown_and_json(self) -> None:
         class FakeClient:
             def get_model(self, model_id):

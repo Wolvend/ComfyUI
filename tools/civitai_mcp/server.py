@@ -744,7 +744,7 @@ def create_server(config: ServerConfig | None = None) -> FastMCP:
                 versions = model.get("modelVersions") or []
                 if not versions:
                     raise ValueError(f"Model {model_id} does not expose any versions.")
-                data = versions[0]
+                data = latest_model_version(versions) or versions[0]
             else:
                 raise ValueError("Provide model_id, version_id, or file_hash.")
 
