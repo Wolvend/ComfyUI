@@ -262,6 +262,14 @@ def create_server(config: ServerConfig | None = None) -> FastMCP:
             ) from exc
         return resolved
 
+    def read_workflow_text(path_value: str) -> str:
+        workflow_path = Path(path_value).expanduser().resolve()
+        if workflow_path.suffix.lower() != ".json":
+            raise ValueError("workflow_path must point to a .json workflow file.")
+        if workflow_path.stat().st_size > 20 * 1024 * 1024:
+            raise ValueError("workflow_path is too large; provide workflow_json for explicit inline scanning.")
+        return workflow_path.read_text(encoding="utf-8")
+
     def safe_relative(path_value: Path) -> str | None:
         try:
             return path_value.relative_to(config.comfyui_root).as_posix()
@@ -537,8 +545,9 @@ def create_server(config: ServerConfig | None = None) -> FastMCP:
         base = root or paths.models_root
         if not base.exists():
             return []
+        target_name = Path(filename).name
         try:
-            matches = [str(path) for path in base.rglob(filename) if path.is_file()]
+            matches = [str(path) for path in base.rglob("*") if path.is_file() and path.name == target_name]
         except OSError:
             matches = []
         return matches[:20]
@@ -874,7 +883,7 @@ def create_server(config: ServerConfig | None = None) -> FastMCP:
     ) -> ToolResult:
         try:
             if workflow_path:
-                workflow_text = Path(workflow_path).expanduser().read_text(encoding="utf-8")
+                workflow_text = read_workflow_text(workflow_path)
             elif workflow_json is not None:
                 workflow_text = workflow_json
             else:

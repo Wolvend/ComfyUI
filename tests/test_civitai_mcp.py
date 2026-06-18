@@ -126,6 +126,37 @@ class TestCivitaiMCP(unittest.TestCase):
             finally:
                 client.close()
 
+    def test_download_rejects_non_civitai_before_creating_destination_parent(self) -> None:
+        with tempfile_directory() as tmp_path:
+            client = CivitaiClient(cache=JsonCache(tmp_path / "cache.json"))
+            try:
+                destination = tmp_path / "new-folder" / "file.bin"
+                with self.assertRaises(ValueError):
+                    client.download("https://example.com/file.bin", destination)
+            finally:
+                client.close()
+
+            self.assertFalse(destination.parent.exists())
+
+    def test_download_rejects_cross_host_redirects(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(302, headers={"location": "https://example.com/file.bin"})
+
+        with tempfile_directory() as tmp_path:
+            client = CivitaiClient(
+                cache=JsonCache(tmp_path / "cache.json"),
+                transport=httpx.MockTransport(handler),
+            )
+            try:
+                out_path = tmp_path / "demo.safetensors"
+                with self.assertRaises(ValueError):
+                    client.download("https://civitai.com/api/download/models/1", out_path)
+            finally:
+                client.close()
+
+            self.assertFalse(out_path.exists())
+            self.assertFalse((tmp_path / "demo.safetensors.part").exists())
+
     def test_server_registers_expected_tools(self) -> None:
         with tempfile_directory() as tmp_path:
             config = ServerConfig.from_env(
@@ -721,6 +752,107 @@ class TestCivitaiMCP(unittest.TestCase):
             self.assertEqual(batch_result[1]["data"]["planned_count"], 2)
             self.assertEqual(batch_result[1]["data"]["plans"][1]["plan"]["filename"], "demo.safetensors")
             self.assertTrue(batch_result[1]["data"]["plans"][1]["plan"]["filename_sanitized"])
+
+    def test_read_only_tools_do_not_create_model_folders(self) -> None:
+        class FakeClient:
+            def get_model_version(self, version_id):
+                return {
+                    "id": version_id,
+                    "name": "demo",
+                    "baseModel": "Flux",
+                    "files": [
+                        {
+                            "id": 11,
+                            "name": "demo_lora.safetensors",
+                            "sizeKB": 2,
+                            "primary": True,
+                            "downloadUrl": "https://civitai.com/api/download/models/1",
+                        }
+                    ],
+                    "images": [],
+                }
+
+            def resolve_download_url(self, **kwargs):
+                return "https://civitai.com/api/download/models/1", {"source": "stub"}
+
+            def search_models(self, **kwargs):
+                return {"items": [], "metadata": {}}
+
+            def get_model(self, model_id):
+                return {"modelVersions": []}
+
+            def get_model_version_by_hash(self, file_hash):
+                return self.get_model_version(99)
+
+            def search_creators(self, **kwargs):
+                return {"items": [], "metadata": {}}
+
+            def search_images(self, **kwargs):
+                return {"items": [], "metadata": {}}
+
+            def search_tags(self, **kwargs):
+                return {"items": [], "metadata": {}}
+
+            def download(self, url, destination):
+                destination.write_bytes(b"payload")
+                return destination
+
+            def close(self):
+                pass
+
+        with tempfile_directory() as tmp_path:
+            comfyui_root = tmp_path / "ComfyUI"
+            fake_client = FakeClient()
+            with mock.patch("tools.civitai_mcp.server.CivitaiClient", return_value=fake_client):
+                config = ServerConfig.from_env(
+                    comfyui_root=comfyui_root,
+                    cache_dir=tmp_path / "cache",
+                    api_key=None,
+                    debug=False,
+                    host="127.0.0.1",
+                    port=8000,
+                )
+                server = create_server(config)
+                plan_result = asyncio.run(
+                    server.call_tool(
+                        "civitai_plan_download",
+                        {
+                            "model_version_id": 99,
+                            "asset_type": "LoRA",
+                        },
+                    )
+                )
+                hint_result = asyncio.run(
+                    server.call_tool(
+                        "civitai_get_compatibility_hint",
+                        {
+                            "filename": "demo_lora.safetensors",
+                            "asset_type": "LoRA",
+                        },
+                    )
+                )
+
+            self.assertEqual(plan_result[1]["status"], "ok")
+            self.assertEqual(hint_result[1]["status"], "ok")
+            self.assertFalse((comfyui_root / "models" / "loras").exists())
+
+    def test_workflow_scan_rejects_non_json_paths(self) -> None:
+        with tempfile_directory() as tmp_path:
+            workflow_path = tmp_path / "workflow.txt"
+            workflow_path.write_text("{}", encoding="utf-8")
+            config = ServerConfig.from_env(
+                comfyui_root=tmp_path / "ComfyUI",
+                cache_dir=tmp_path / "cache",
+                api_key=None,
+                debug=False,
+                host="127.0.0.1",
+                port=8000,
+            )
+            server = create_server(config)
+            result = asyncio.run(server.call_tool("civitai_scan_workflow_assets", {"workflow_path": str(workflow_path)}))
+
+            self.assertEqual(result[1]["status"], "error")
+            self.assertIn(".json", result[1]["error"]["message"])
 
     def test_download_asset_rejects_destination_outside_comfyui_models_tree(self) -> None:
         class FakeClient:

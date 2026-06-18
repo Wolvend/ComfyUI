@@ -19,7 +19,7 @@ Use HTTP transport when a client needs it:
 Optional configuration:
 
 - `CIVITAI_API_KEY` - Civitai API key
-- `CIVITAI_MCP_BASE_URL` - Civitai API base URL override
+- `CIVITAI_API_BASE_URL` - Civitai API base URL override
 - `CIVITAI_MCP_COMFYUI_ROOT` - ComfyUI root override
 - `CIVITAI_MCP_CACHE_DIR` - cache directory override
 - `CIVITAI_MCP_TIMEOUT` - request timeout in seconds
@@ -63,9 +63,10 @@ The resolver maps common asset types into the local `models/` tree, including:
 - `civitai_download_asset` and `civitai_install_asset` default to `dry_run=True`.
 - `civitai_clear_cache` requires `confirm=true`.
 - Download URLs are limited to Civitai-owned domains.
+- Download redirects are revalidated on every hop and rejected if they leave Civitai-owned domains.
 - Filenames are sanitized to basenames before writes.
 - Explicit destination folders must resolve inside the ComfyUI `models/` tree. Relative folders are treated as ComfyUI-root-relative before validation.
-- Workflow scanning reports likely missing assets only; it does not change files.
+- Workflow scanning accepts inline JSON or bounded `.json` workflow files, reports likely missing assets only, and does not change files.
 
 ## Verification
 

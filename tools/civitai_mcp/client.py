@@ -4,7 +4,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 
@@ -69,12 +69,27 @@ class CivitaiClient:
         self._validate_civitai_url(url)
         destination.parent.mkdir(parents=True, exist_ok=True)
         temp_destination = destination.with_name(f"{destination.name}.part")
-        with self._client.stream("GET", url) as response:
-            if response.status_code >= 400:
-                raise CivitaiAPIError("download", str(response.request.url), response.status_code, response.text)
-            with temp_destination.open("wb") as handle:
-                for chunk in response.iter_bytes():
-                    handle.write(chunk)
+        current_url = url
+        redirects = 0
+        while True:
+            self._validate_civitai_url(current_url)
+            with self._client.stream("GET", current_url, follow_redirects=False) as response:
+                if 300 <= response.status_code < 400:
+                    location = response.headers.get("location")
+                    if not location:
+                        raise CivitaiAPIError("download", str(response.request.url), response.status_code, "Missing redirect location.")
+                    redirects += 1
+                    if redirects > 5:
+                        raise ValueError("Too many redirects while downloading Civitai asset.")
+                    current_url = urljoin(str(response.request.url), location)
+                    continue
+                if response.status_code >= 400:
+                    response.read()
+                    raise CivitaiAPIError("download", str(response.request.url), response.status_code, response.text)
+                with temp_destination.open("wb") as handle:
+                    for chunk in response.iter_bytes():
+                        handle.write(chunk)
+                break
         temp_destination.replace(destination)
         return destination
 

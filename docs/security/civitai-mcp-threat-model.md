@@ -50,9 +50,11 @@ This repository adds a local Civitai FastMCP server under `tools/civitai_mcp/` a
 ## Required Controls
 
 - Normalize and validate all paths before writing.
+- Validate download URL schemes, hosts, and redirect targets before writing.
 - Keep dry-run as the default for any write-capable tool.
 - Require explicit destinations for non-ComfyUI installs.
 - Prefer ComfyUI-aware folder mapping, but let users override the target path explicitly.
+- Keep path-resolution and workflow-scanning helpers read-only; planning tools must not create model folders.
 - Validate hashes and file identity before suggesting duplicates or matching downloads.
 - Bound cache lifetimes and treat cache misses as normal.
 - Return structured error objects with the exact failing operation and a safe next step.
@@ -60,4 +62,3 @@ This repository adds a local Civitai FastMCP server under `tools/civitai_mcp/` a
 ## Repository-Wide Security Posture
 
 The server is intended to be local-first and user-controlled. The main security objective is preventing accidental or agent-driven filesystem damage while preserving a useful automation surface for model discovery and installation. The codebase should favor explicitness, reversible actions, and clear reports over hidden convenience.
-

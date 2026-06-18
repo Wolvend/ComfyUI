@@ -102,10 +102,13 @@ class ComfyUIPaths:
         asset_type: str | None = None,
         filename: str | None = None,
         base_model: str | None = None,
+        *,
+        create: bool = False,
     ) -> Path:
         folder_name = self._resolve_folder_name(asset_type, filename, base_model)
         target = self.models_root / folder_name
-        target.mkdir(parents=True, exist_ok=True)
+        if create:
+            target.mkdir(parents=True, exist_ok=True)
         return target
 
     def _resolve_folder_name(
